@@ -1,0 +1,177 @@
+# =====================================================================
+#  config.yaml — lists, thresholds and templates.
+#  Copy to config.yaml and edit. Every key is optional: anything you
+#  leave out uses the built-in default shown here.
+#  Several values can also be changed live from the admin bot
+#  (/mode, /setmin, /block, /allow, /addsource, /enablestore …).
+#  Those live changes are saved in the database and override this file.
+# =====================================================================
+
+# Channels to watch. Use @username, an invite link (https://t.me/+AbCd…) or a
+# numeric id (-100…). The reader account joins them automatically
+# (reader.auto_join).
+sources:
+  - "@channel1"
+  - "@channel2"
+
+# Which stores to post deals for. Start with Amazon only.
+# Later, to add Flipkart: configure AFFILIATE_NETWORK in .env, then add "flipkart"
+# here (or send /enablestore flipkart to the bot). Valid keys are listed under
+# "stores" below (or /stores in the bot).
+enabled_stores:
+  - amazon
+
+reader:
+  process_edits: true       # re-check edited source messages that were skipped before
+  auto_join: true           # join public channels / invite links in "sources"
+  catch_up: false           # try to fetch messages missed while offline (can be noisy)
+  max_concurrent: 5         # messages processed in parallel
+  ignore_forwards: true     # skip messages forwarded from elsewhere (often ads)
+
+expansion:                  # short-link resolving (only redirects; pages are never scraped)
+  timeout_seconds: 10
+  max_redirects: 8
+  concurrency: 5            # max simultaneous HTTP requests to shorteners
+  retries: 2                # retries with exponential backoff
+  cache_ttl_hours: 168      # remember resolved links for 7 days
+  failed_cache_ttl_minutes: 60
+  expand_unknown_domains: true   # also follow links on domains not listed below
+  # The built-in list covers amzn.to, amzn.in, fkrt.it, fkrt.cc, bit.ly, ekaro.in,
+  # myntr.it, ajiio.in, cutt.ly, tinyurl.com, linkredirect.in and more.
+  # Add your own here (they are added to the built-in list):
+  extra_shortener_domains: []
+  # user_agent: "Mozilla/5.0 …"   # override the browser User-Agent if needed
+
+# Store definitions (used to recognise links). Built-in: amazon, flipkart, shopsy,
+# myntra, ajio, meesho, nykaa, croma, tatacliq, jiomart, reliancedigital, firstcry,
+# bigbasket, boat. You can override one or add a new store:
+#   keep_params: query parameters to KEEP in the clean link (all others are stripped).
+#                Omit it to strip only known tracking params.
+stores:
+  flipkart:
+    name: Flipkart
+    domains: [flipkart.com]
+    keep_params: [pid, lid, marketplace]
+  # snapdeal:
+  #   name: Snapdeal
+  #   domains: [snapdeal.com]
+  #   keep_params: []
+
+filters:
+  min_discount: 50          # % off needed for a normal deal (/setmin changes it live)
+  hot_deal_min_discount: 70 # % off for the 🔥 HOT DEAL label
+  hot_deal_min_score: 85    # …or this score
+  # Per-category minimum discount (overrides min_discount when a category is detected)
+  category_min_discount:
+    electronics: 35
+    fashion: 65
+    grocery: 40
+    beauty: 50
+  # Words that identify a category (matched in the product title)
+  categories:
+    electronics: [laptop, smartphone, mobile, phone, tv, television, monitor, tablet, smartwatch,
+                  earbuds, headphone, speaker, camera, ssd, processor, router, printer,
+                  refrigerator, washing machine]
+    fashion: [t-shirt, tshirt, shirt, jeans, kurta, saree, sneakers, shoes, sandals, dress, jacket,
+              trousers, handbag]
+    grocery: [atta, rice, dal, oil, ghee, tea, coffee, biscuit, snacks]
+    beauty: [serum, lipstick, face wash, shampoo, sunscreen, moisturizer, perfume]
+  # Brands eligible for auto-posting in "mixed" mode (lowercase). /allow adds live.
+  brand_allowlist: [boat, philips, samsung, oneplus, realme, redmi, xiaomi, lenovo, hp, dell, asus,
+                    sony, jbl, noise, fire-boltt, prestige, pigeon, bajaj, havells, milton,
+                    wildcraft, puma, adidas, nike, levis, mamaearth, lakme, apple, logitech]
+  # Brands always skipped. /block adds live.
+  brand_blocklist: []
+  # Skip deals containing any of these words/phrases
+  keyword_blocklist: [refurbished, renewed, used, pre-owned, preowned, open box, second hand,
+                      condom, lingerie, adult, betting, casino, crypto, rummy, loan app]
+  # Messages with these words are treated as ads/promos and ignored
+  ad_keywords: [paid promotion, sponsored, advertisement, promoted post, "#promo", join our vip,
+                telegram premium, investment, earn daily, trading signals]
+  unknown_discount: allow   # allow | skip — what to do when no discount can be found
+  max_products_per_post: 3  # messages with more distinct products are skipped (round-ups)
+
+price_error:
+  # Any of these words → PRICE_ERROR label
+  strong_keywords: [price error, pricing error, price glitch, glitch, price bug, bug deal,
+                    pricing mistake, price mistake]
+  # These only add a few points (channels use "loot" for everything)
+  weak_keywords: [loot, steal, big loot, super loot, maha loot, crazy deal]
+  min_discount: 90          # discount at/above this → price error
+  max_absurd_price: 9       # price at/below ₹9 …
+  absurd_min_mrp: 200       # … with MRP at/above ₹200 → price error
+  max_price_ratio: 0.10     # price ≤ 10% of MRP → price error
+
+dedupe:
+  window_hours: 24          # don't repost the same product within this time…
+  price_drop_percent: 10    # …unless the price dropped by at least this % ("Price dropped further")
+  title_similarity: 0.85    # fuzzy title match threshold (0-1) to catch same deal, different link
+
+conversion:
+  # When a link cannot be converted to YOUR affiliate link:
+  #   skip       → drop the deal
+  #   approval   → send it to you for approval (with a clean, non-affiliate link)
+  #   clean_link → post with a clean, non-affiliate link
+  # Another person's tag is NEVER posted in any case.
+  on_fail: approval
+  timeout_seconds: 15
+  concurrency: 3
+
+posting:
+  mode: mixed               # auto | approval | mixed  (/mode changes it live)
+  max_posts_per_hour: 8
+  min_gap_seconds: 300      # at least 5 minutes between posts
+  price_error_bypass_rate_limit: true
+  queue_max_age_minutes: 240        # queued normal deals older than this are dropped as stale
+  price_error_max_age_minutes: 45   # price errors die fast
+  quiet_hours_enabled: true
+  quiet_hours_start: "01:00"        # IST (TZ_NAME). Normal deals are held; price errors still post
+  quiet_hours_end: "07:00"
+  # mixed mode: auto-post only if score ≥ auto_min_score AND link converted AND brand allowed
+  auto_min_score: 75
+  require_brand_allowlist: true
+  price_errors_need_approval: false
+  link_preview: false       # show Telegram link preview on text-only posts
+  max_album_photos: 4       # photos re-uploaded per post
+  notify_admin_on_post: true  # DM you each post with a "❌ Mark DEAL OVER" button
+
+approvals:
+  expiry_minutes: 120             # pending approvals expire after this
+  price_error_expiry_minutes: 20
+
+health:
+  daily_summary_time: "22:00"     # IST
+  no_messages_alert_hours: 3      # alert if nothing was read for this long
+  error_alert_threshold: 5        # alert if this many errors…
+  error_alert_window_minutes: 10  # …happen within this window
+
+# Post templates (Telegram HTML: <b>, <i>, <s>, <u>, <code>, <a href="">).
+# Placeholders: {header} {price_drop} {title} {price} {mrp} {discount} {effective_price}
+#               {coupon} {bank_offer} {links} {hashtags} {disclosure} {store}
+# A line whose placeholder is empty (e.g. no coupon) is removed automatically.
+templates:
+  header_price_error: "⚠️ <b>PRICE ERROR — may get cancelled, order fast!</b>"
+  header_hot_deal: "🔥 <b>HOT DEAL</b>"
+  header_normal: "✅ <b>Deal</b>"
+  price_drop_line: "📉 <i>Price dropped further!</i>"
+  deal_over_line: "❌ <b>DEAL OVER</b> — expired / out of stock"
+  link_line: '👉 <a href="{url}">Buy on {store}</a>'
+  hashtags: "#{store} #deals #India"
+  disclosure: "#ad — we may earn a commission"   # required by ASCI guidelines — keep it
+  post: |-
+    {header}
+    {price_drop}
+
+    🛍 <b>{title}</b>
+
+    💰 Deal Price: <b>₹{price}</b>
+    🏷 MRP: <s>₹{mrp}</s>
+    📉 <b>{discount}% OFF</b>
+    ✨ Effective: ₹{effective_price}
+    🎟 Coupon: <code>{coupon}</code>
+    💳 {bank_offer}
+
+    {links}
+
+    {hashtags}
+    {disclosure}

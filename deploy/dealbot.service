@@ -1,0 +1,29 @@
+# systemd unit — alternative to Docker.
+# Install:
+#   sudo cp deploy/dealbot.service /etc/systemd/system/dealbot.service
+#   (edit User= and the paths below if yours differ)
+#   sudo systemctl daemon-reload && sudo systemctl enable --now dealbot
+[Unit]
+Description=Telegram deal watcher / affiliate poster
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=dealbot
+WorkingDirectory=/home/dealbot/telegram-deals
+ExecStart=/home/dealbot/telegram-deals/venv/bin/python main.py
+Restart=always
+RestartSec=10
+# give the bot time to finish in-flight work on stop
+TimeoutStopSec=30
+KillSignal=SIGTERM
+Environment=PYTHONUNBUFFERED=1
+
+# hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target
