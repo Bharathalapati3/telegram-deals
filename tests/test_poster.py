@@ -124,3 +124,43 @@ def test_parse_peer():
     assert parse_peer("mychannel") == "@mychannel"
     assert parse_peer("https://t.me/mychannel") == "@mychannel"
     assert parse_peer("-1001234567890") == -1001234567890
+
+
+# ------------------------------------------------------------------ /scan backfill
+async def test_backfill_reads_history_once(settings, db):
+    import datetime as dt
+    from reader import Reader
+
+    now = dt.datetime.now(dt.timezone.utc)
+
+    class Msg:
+        def __init__(self, mid, text, grouped_id=None, age_h=0.1):
+            self.id, self.raw_text, self.grouped_id = mid, text, grouped_id
+            self.chat_id, self.date = -1001, now - dt.timedelta(hours=age_h)
+            self.fwd_from = self.buttons = self.photo = self.document = None
+
+        def get_entities_text(self):
+            return []
+
+    history = [Msg(5, "new deal"), Msg(4, "", grouped_id=9), Msg(3, "album caption", grouped_id=9),
+               Msg(2, "old deal", age_h=48)]
+
+    class Client:
+        async def iter_messages(self, chat, limit):
+            for m in history[:limit]:
+                yield m
+
+    seen = []
+
+    async def on_message(raw):
+        seen.append(raw.message_id)
+        await db.record_seen(source_id=raw.source_id, source_name=raw.source_name,
+                             message_id=raw.message_id, action="skip")
+
+    r = Reader(Client(), settings, db, on_message)
+    r._chat_ids = {-1001: "Src"}
+    counts = await r.backfill(per_source=20, max_age_hours=12)
+    assert sorted(seen) == [3, 5] and counts == {"Src": 2}   # album once, old msg ignored
+    seen.clear()
+    await r.backfill(per_source=20, max_age_hours=12)
+    assert seen == []                                          # already handled → not again

@@ -291,6 +291,44 @@ class Reader:
             if self.state == "running" and any(not ok for ok, _ in self._status.values()):
                 await self.refresh_sources()
 
+    async def backfill(self, per_source: int = 20, max_age_hours: float = 12) -> dict[str, int]:
+        """Read recent messages already in the sources and run them through the pipeline.
+
+        Messages already handled before are skipped, albums are grouped, oldest first.
+        Returns {source name: number of messages sent to the pipeline}.
+        """
+        if not self._chat_ids:
+            await self.refresh_sources()
+        cutoff = time.time() - max_age_hours * 3600
+        counts: dict[str, int] = {}
+        for chat_id, name in list(self._chat_ids.items()):
+            counts[name] = 0
+            try:
+                msgs = [m async for m in self.client.iter_messages(chat_id, limit=per_source)]
+            except FloodWaitError as e:
+                log.warning("FloodWait %ss reading history of %s", e.seconds, name)
+                await asyncio.sleep(e.seconds + 1)
+                continue
+            except Exception as exc:  # noqa: BLE001
+                log.warning("cannot read history of %s: %r", name, exc)
+                continue
+            groups: dict[Any, list[Any]] = {}
+            for m in msgs:
+                if m.date and m.date.timestamp() < cutoff:
+                    continue
+                groups.setdefault(m.grouped_id or ("single", m.id), []).append(m)
+            for group in reversed(list(groups.values())):   # oldest first
+                group.sort(key=lambda m: m.id)
+                if not any(m.raw_text or m.buttons for m in group):
+                    continue
+                raw = self._raw(group)
+                if await self.db.was_handled(raw.source_id, raw.message_id):
+                    continue
+                self._spawn(raw)
+                counts[name] += 1
+        await self.drain(timeout=600)
+        return counts
+
     async def drain(self, timeout: float = 20) -> None:
         if self._tasks:
             await asyncio.wait(self._tasks, timeout=timeout)

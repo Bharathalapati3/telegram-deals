@@ -161,6 +161,7 @@ When the bot starts it messages you: "🤖 Deal bot started".
 | `/stats` | per source: seen / passed / posted, so you can drop bad sources |
 | `/test <message>` | run the full pipeline **without posting** and show the result (or reply `/test` to a forwarded message) |
 | `/lastskipped` | why recent deals were rejected |
+| `/scan [count] [hours]` | read messages **already** in the sources now (default: last 20 per source, up to 12 h old). New messages are read automatically |
 | `/queue` | deals waiting to be posted |
 | `/over <post id>` | edit a channel post to say **❌ DEAL OVER** |
 

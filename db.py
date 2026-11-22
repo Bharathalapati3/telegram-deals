@@ -185,6 +185,11 @@ class Database:
         row = await self._one("SELECT COUNT(*) AS n FROM deals_seen WHERE created_at>=?", (since,))
         return int(row["n"]) if row else 0
 
+    async def count_actions_since(self, since: float) -> dict[str, int]:
+        rows = await self._all("SELECT action, COUNT(*) AS n FROM deals_seen WHERE created_at>=? "
+                               "GROUP BY action", (since,))
+        return {r["action"]: int(r["n"]) for r in rows}
+
     # ------------------------------------------------------------------ dedupe lookups
     async def recent_by_key(self, deal_key: str, since_ts: float) -> Optional[dict[str, Any]]:
         return await self._one(

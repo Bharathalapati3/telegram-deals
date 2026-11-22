@@ -37,6 +37,7 @@ HELP = """<b>Deal bot — admin commands</b>
 /stats — per-source seen / passed / posted
 /test &lt;message&gt; — dry-run the pipeline (or reply /test to a message)
 /lastskipped — why recent deals were rejected
+/scan [count] [hours] — read recent messages already in the sources now
 /queue — deals waiting to be posted
 /over &lt;post id&gt; — mark a channel post as ❌ DEAL OVER
 /cancel — cancel an edit in progress"""
@@ -460,6 +461,37 @@ class Admin:
             lines.append(f"• {html.escape(r['source_name'] or '')}: {html.escape(title)}\n"
                          f"  ↳ {html.escape('; '.join(r['reasons'])[:200])}")
         await event.reply("\n".join(lines), parse_mode="html", link_preview=False)
+
+    async def cmd_scan(self, event: Any, arg: str) -> None:
+        """/scan [messages per source, default 20] [max age in hours, default 12]"""
+        if not self.reader or self.reader.state != "running":
+            state = self.reader.state if self.reader else "n/a"
+            await event.reply(f"Reader is not running ({state}). Check /status.")
+            return
+        nums = [float(x) for x in re.findall(r"\d+(?:\.\d+)?", arg)]
+        per_source = int(min(max(nums[0], 1), 100)) if nums else 20
+        hours = min(max(nums[1], 0.5), 72) if len(nums) > 1 else 12
+        await event.reply(f"🔎 Scanning the last {per_source} messages (up to {hours:g}h old) in "
+                          f"{len(self.settings.sources)} source(s)… this can take a minute.")
+        started = time.time()
+        counts = await self.reader.backfill(per_source, hours)
+        actions = await self.db.count_actions_since(started)
+        checked = sum(counts.values())
+        per = "\n".join(f"• {html.escape(_short(n, 35))}: {c}" for n, c in counts.items()) or "• no sources resolved"
+        notes = []
+        if self.settings.paused:
+            notes.append("⏸ Posting is paused — /resume")
+        if self.poster.in_quiet_hours():
+            notes.append("🌙 Quiet hours: normal deals wait in the queue until they end")
+        pc = self.settings.cfg.posting
+        await event.reply(
+            f"✅ <b>Scan done</b> — {checked} new message(s) checked\n{per}\n\n"
+            f"Queued to post: <b>{actions.get('auto', 0)}</b>\n"
+            f"Sent to you for approval: <b>{actions.get('approval', 0)}</b>\n"
+            f"Skipped: {actions.get('skip', 0)} (see /lastskipped)\n\n"
+            f"Posts go out one at a time, at least {pc.min_gap_seconds // 60} min apart, max "
+            f"{pc.max_posts_per_hour}/hour (see /queue)."
+            + ("\n" + "\n".join(notes) if notes else ""), parse_mode="html")
 
     async def cmd_queue(self, event: Any, arg: str) -> None:
         items = await self.db.queued_items()
