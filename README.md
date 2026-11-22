@@ -111,6 +111,16 @@ venv/bin/python login.py
 Enter the phone number (+91…), then the code Telegram sends to that account, then
 your 2-step password if you have one. This creates `data/user.session`.
 
+**Code not arriving?** Log in with a QR code instead (no code needed):
+
+```bash
+docker compose run --rm dealbot python login.py --qr     # or: venv/bin/python login.py --qr
+```
+
+On the phone where the reader account is logged in, open Telegram → **Settings →
+Devices → Link Desktop Device** and scan the QR code shown in the terminal. Make
+the terminal window big enough to show the whole square.
+
 ## 7. Run it
 
 **Docker (recommended)**
@@ -212,6 +222,7 @@ Each deal is logged on one line with its decision and reasons, for example:
 | Problem | Fix |
 |---|---|
 | `CONFIG: API_ID / API_HASH missing` | Fill in `.env`. With Docker, check `env_file: .env` is next to `docker-compose.yml`. |
+| Login code never arrives | Use `python login.py --qr` and scan the code from Telegram → Settings → Devices → Link Desktop Device. |
 | Bot says "reader account session is invalid" | Run `login.py` again (step 6), then restart. This happens if you logged that account out of "Active sessions". |
 | "I cannot access the target channel" | Make the bot an admin of the channel. For private channels use the `-100…` id and post one message there after the bot starts. |
 | You get no DMs from the bot | Open the bot and press **Start**. Check that `ADMIN_IDS` is your numeric id. |

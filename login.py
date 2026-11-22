@@ -5,14 +5,19 @@ Telegram sent the login code (Telegram app, SMS, phone call or email), lets you
 request the code again by another method, and asks for your 2-step password if
 you have one. It creates the session file in DATA_DIR so main.py can run unattended.
 
-    python login.py
-    docker compose run --rm dealbot python login.py
+    python login.py            # login with a code
+    python login.py --qr       # login by scanning a QR code (no code needed)
+    docker compose run --rm dealbot python login.py --qr
+
+If the code never arrives, use --qr: on your phone open Telegram → Settings →
+Devices → Link Desktop Device, and scan the QR code shown in the terminal.
 """
 from __future__ import annotations
 
 import asyncio
 import getpass
 import re
+import sys
 
 from telethon import TelegramClient
 from telethon.errors import (ApiIdInvalidError, FloodWaitError, PhoneCodeExpiredError,
@@ -73,9 +78,56 @@ def show(sent: object) -> None:
         print(f"   Didn't get it? Type  r  to resend it by {nxt}{wait}.")
     else:
         print("   (Telegram offers no other delivery method for this account right now.)")
+    print("   No code at all? Type  q  to log in by scanning a QR code instead.")
+
+
+def print_qr(url: str) -> None:
+    """Draw the QR code in the terminal (falls back to printing the link)."""
+    try:
+        import qrcode
+        qr = qrcode.QRCode(border=1)
+        qr.add_data(url)
+        qr.make(fit=True)
+        qr.print_ascii(invert=True)
+    except ImportError:
+        print("(Install the 'qrcode' package to see the QR code here.)")
+        print("Or paste this link into any QR-code generator and scan the result:")
+    print(url)
+
+
+async def ask_password(client: TelegramClient) -> None:
+    for _ in range(3):
+        pw = getpass.getpass("🔒 2-step verification password: ")
+        try:
+            await client.sign_in(password=pw)
+            return
+        except PasswordHashInvalidError:
+            print("❌ Wrong password.")
+    raise SystemExit("Too many wrong passwords.")
+
+
+async def qr_flow(client: TelegramClient) -> None:
+    """Log in by scanning a QR code with the Telegram app on a phone already logged in."""
+    print("\n📱 QR login. On the phone where this account is logged in:\n"
+          "   Telegram → Settings → Devices → Link Desktop Device → scan the code below.\n"
+          "   (Make the terminal window big enough to show the whole square.)\n")
+    qr = await client.qr_login()
+    for attempt in range(8):
+        print_qr(qr.url)
+        try:
+            await qr.wait(timeout=30)
+            return
+        except asyncio.TimeoutError:
+            print("\n⌛ QR code expired — here is a fresh one.\n")
+            await qr.recreate()
+        except SessionPasswordNeededError:
+            await ask_password(client)
+            return
+    raise SystemExit("QR code was not scanned. Run `python login.py --qr` again when ready.")
 
 
 async def run() -> None:
+    use_qr = "--qr" in sys.argv[1:]
     env = load_env()
     if not env.api_id or not env.api_hash:
         raise SystemExit("Set API_ID and API_HASH in .env first (https://my.telegram.org).")
@@ -86,6 +138,13 @@ async def run() -> None:
         if await client.is_user_authorized():
             me = await client.get_me()
             print(f"Already logged in as {me.first_name} (id {me.id}). Nothing to do.")
+            return
+
+        if use_qr:
+            await qr_flow(client)
+            me = await client.get_me()
+            print(f"\n✅ Logged in as {me.first_name} (id {me.id}). Session saved in {env.data_dir}/.")
+            print("Keep the .session file secret — it is as powerful as your password.")
             return
 
         phone = env.phone or input("Phone number of the READER account (e.g. +919876543210): ")
@@ -111,7 +170,10 @@ async def run() -> None:
             return
 
         while True:
-            code = input("\nEnter the code (or r to resend): ").strip().replace(" ", "")
+            code = input("\nEnter the code (r = resend, q = QR login): ").strip().replace(" ", "")
+            if code.lower() == "q":
+                await qr_flow(client)
+                break
             if code.lower() == "r":
                 try:
                     sent = await client(ResendCodeRequest(phone, sent.phone_code_hash))
@@ -136,15 +198,7 @@ async def run() -> None:
             except PhoneCodeExpiredError:
                 print("❌ Code expired. Type r to get a new one.")
             except SessionPasswordNeededError:
-                for _ in range(3):
-                    pw = getpass.getpass("🔒 2-step verification password: ")
-                    try:
-                        await client.sign_in(password=pw)
-                        break
-                    except PasswordHashInvalidError:
-                        print("❌ Wrong password.")
-                else:
-                    raise SystemExit("Too many wrong passwords.")
+                await ask_password(client)
                 break
 
         me = await client.get_me()
